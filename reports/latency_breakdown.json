@@ -1,0 +1,9 @@
+{
+  "chunking_s": 0.04,
+  "enrichment_s": 291.05,
+  "indexing_s": 42.0,
+  "reranker_load_s": 0.0,
+  "query_generation_s": 185.46,
+  "ragas_eval_s": 56.15,
+  "total_s": 574.7
+}

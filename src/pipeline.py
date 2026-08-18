@@ -20,6 +20,8 @@ def build_pipeline():
     print("PRODUCTION RAG PIPELINE")
     print("=" * 60, flush=True)
 
+    latency = {}
+
     # Step 1: Load & Chunk (M1)
     t0 = time.time()
     print("\n[1/4] Chunking documents...", flush=True)
@@ -29,7 +31,8 @@ def build_pipeline():
         parents, children = chunk_hierarchical(doc["text"], metadata=doc["metadata"])
         for child in children:
             all_chunks.append({"text": child.text, "metadata": {**child.metadata, "parent_id": child.parent_id}})
-    print(f"  ✓ {len(all_chunks)} chunks from {len(docs)} documents ({time.time()-t0:.1f}s)", flush=True)
+    latency["chunking_s"] = round(time.time() - t0, 2)
+    print(f"  ✓ {len(all_chunks)} chunks from {len(docs)} documents ({latency['chunking_s']}s)", flush=True)
 
     # Step 2: Enrichment (M5)
     t0 = time.time()
@@ -37,8 +40,10 @@ def build_pipeline():
     enriched = enrich_chunks(all_chunks)
     if enriched:
         all_chunks = [{"text": e.enriched_text, "metadata": e.auto_metadata} for e in enriched]
-        print(f"  ✓ Enriched {len(enriched)} chunks ({time.time()-t0:.1f}s)", flush=True)
+        latency["enrichment_s"] = round(time.time() - t0, 2)
+        print(f"  ✓ Enriched {len(enriched)} chunks ({latency['enrichment_s']}s)", flush=True)
     else:
+        latency["enrichment_s"] = round(time.time() - t0, 2)
         print("  ⚠️  M5 not implemented — using raw chunks", flush=True)
 
     # Step 3: Index (M2)
@@ -46,14 +51,17 @@ def build_pipeline():
     print(f"\n[3/4] Indexing {len(all_chunks)} chunks (BM25 + Dense)...", flush=True)
     search = HybridSearch()
     search.index(all_chunks)
-    print(f"  ✓ Indexed ({time.time()-t0:.1f}s)", flush=True)
+    latency["indexing_s"] = round(time.time() - t0, 2)
+    print(f"  ✓ Indexed ({latency['indexing_s']}s)", flush=True)
 
     # Step 4: Reranker (M3)
     t0 = time.time()
     print("\n[4/4] Loading reranker...", flush=True)
     reranker = CrossEncoderReranker()
-    print(f"  ✓ Reranker ready ({time.time()-t0:.1f}s)", flush=True)
+    latency["reranker_load_s"] = round(time.time() - t0, 2)
+    print(f"  ✓ Reranker ready ({latency['reranker_load_s']}s)", flush=True)
 
+    search.latency = latency
     return search, reranker
 
 
@@ -89,6 +97,7 @@ def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker):
     print(f"\n[Eval] Running {len(test_set)} queries...", flush=True)
     questions, answers, all_contexts, ground_truths = [], [], [], []
 
+    t_query0 = time.time()
     for i, item in enumerate(test_set):
         answer, contexts = run_query(item["question"], search, reranker)
         questions.append(item["question"])
@@ -96,11 +105,13 @@ def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker):
         all_contexts.append(contexts)
         ground_truths.append(item["ground_truth"])
         print(f"  [{i+1}/{len(test_set)}] {item['question'][:50]}...", flush=True)
+    query_elapsed = round(time.time() - t_query0, 2)
 
     t0 = time.time()
     print(f"\n[Eval] Running RAGAS (4 metrics × {len(test_set)} questions)...", flush=True)
     results = evaluate_ragas(questions, answers, all_contexts, ground_truths)
-    print(f"  ✓ RAGAS done ({time.time()-t0:.1f}s)", flush=True)
+    ragas_elapsed = round(time.time() - t0, 2)
+    print(f"  ✓ RAGAS done ({ragas_elapsed}s)", flush=True)
 
     print("\n" + "=" * 60)
     print("PRODUCTION RAG SCORES")
@@ -111,6 +122,19 @@ def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker):
 
     failures = failure_analysis(results.get("per_question", []))
     save_report(results, failures)
+
+    # Latency breakdown report (bonus RUBRIC.md) — gộp timing của build_pipeline()
+    # (đính kèm ở search.latency, xem build_pipeline()) với timing của bước eval.
+    latency = dict(getattr(search, "latency", {}) or {})
+    latency["query_generation_s"] = query_elapsed
+    latency["ragas_eval_s"] = ragas_elapsed
+    latency["total_s"] = round(sum(v for v in latency.values()), 2)
+    os.makedirs("reports", exist_ok=True)
+    import json as _json
+    with open("reports/latency_breakdown.json", "w", encoding="utf-8") as f:
+        _json.dump(latency, f, ensure_ascii=False, indent=2)
+    print("Latency breakdown saved to reports/latency_breakdown.json", flush=True)
+
     return results
 
 
