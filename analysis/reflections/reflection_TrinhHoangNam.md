@@ -3,8 +3,6 @@
 **Tên:** Trịnh Hoàng Nam (2A202601376)
 **Module phụ trách:** M1–M5 (toàn bộ — bài cá nhân)
 
-> File này gộp cả 2 cấu trúc có trong repo: 5 mục của `analysis/reflections/reflection_TEMPLATE.md` và 3 phần yêu cầu trong `ASSIGNMENT.md` (Mapping / Khó khăn / Action Plan), vì 2 nguồn tài liệu trong repo mô tả 2 format khác nhau cho cùng một deliverable (xem ghi chú cuối file).
-
 ---
 
 ## 1. Đóng góp kỹ thuật
@@ -22,7 +20,7 @@
 ## 2. Kiến thức học được
 
 - **Khái niệm mới nhất:** Cơ chế RRF (Reciprocal Rank Fusion) hợp nhất kết quả BM25 + Dense dựa trên **rank** thay vì **score tuyệt đối** — giải quyết vấn đề 2 phương pháp có thang điểm không tương đồng (BM25 score có thể > 1, cosine similarity nằm trong [0,1]).
-- **Điều bất ngờ nhất:** Một pipeline "production" với đầy đủ hierarchical chunking + hybrid search + reranking + enrichment lại cho RAGAS score **thấp hơn** naive baseline ở 3/4 metric — kỹ thuật càng phức tạp không tự động đồng nghĩa với càng tốt nếu implementation thiếu 1 bước quan trọng trong thiết kế (chi tiết ở mục 3).
+- **Điều bất ngờ nhất:** Ban đầu, một pipeline "production" với đầy đủ hierarchical chunking + hybrid search + reranking + enrichment lại cho RAGAS score **thấp hơn** naive baseline ở 3/4 metric — kỹ thuật càng phức tạp không tự động đồng nghĩa với càng tốt nếu implementation thiếu 1 bước quan trọng trong thiết kế (chi tiết ở mục 3). Bất ngờ thứ hai: hướng fix "đúng lý thuyết" nhất (resolve child→parent) lại làm cả hệ thống sụp điểm gần về 0 do context quá dài khiến RAGAS's internal judge fail parse — trong khi hướng fix "nửa vời" hơn (chỉ tăng child chunk size vừa phải + chỉnh prompt) lại thành công đưa cả 4 metric vượt ngưỡng bonus. Bài học: đúng lý thuyết chưa chắc an toàn về mặt vận hành (context length limits của hệ thống eval).
 - **Kết nối với bài giảng:** Khớp trực tiếp với phần "Diagnostic Tree" trong RAGAS eval (M4) và khái niệm parent-child retrieval (M1) — bài học thực tế hôm nay minh chứng rõ tại sao cả 2 khái niệm này cùng tồn tại trong 1 buổi giảng.
 
 ### Phần 1 (ASSIGNMENT.md): Mapping bài giảng → Code
@@ -34,7 +32,7 @@
 | BM25 + Dense fusion (RRF) | M2 | `reciprocal_rank_fusion()` | RRF giải quyết vấn đề BM25 và Dense có thang điểm không tương đồng — chỉ dựa vào **rank** nên tránh được việc 1 phương pháp lấn át phương pháp kia. |
 | Vietnamese word segmentation | M2 | `segment_vietnamese()` | underthesea nối từ ghép bằng `_` (vd "nghỉ_phép") — bắt buộc phải `replace("_", " ")` trước khi BM25 tokenize bằng `split(" ")`, nếu không "nghỉ phép" (query, 2 token) sẽ không khớp "nghỉ_phép" (corpus, 1 token). |
 | Cross-encoder reranking | M3 | `CrossEncoderReranker.rerank()` | Load model lần đầu chậm (~46s, bao gồm tải model `bge-reranker-v2-m3`), các lần sau nhanh hơn nhờ cache. Reranker giúp câu trả lời "nghỉ phép" được ưu tiên đúng hơn so với doc không liên quan (VPN, mật khẩu) trong tập test mẫu. |
-| RAGAS 4 metrics | M4 | `evaluate_ragas()` | Kết quả thực tế (reproduce 2 lần, số liệu giống hệt): Faithfulness 0.7667, Answer Relevancy 0.8564, Context Precision 0.9208, Context Recall 0.7917. Context Recall giảm nhiều nhất so với naive baseline — nguyên nhân do chunk quá nhỏ (xem `failure_analysis.md`), không phải do RAGAS đo sai. |
+| RAGAS 4 metrics | M4 | `evaluate_ragas()` | Kết quả cuối cùng (sau khi áp dụng tổ hợp tối ưu, xem mục 3): Faithfulness 0.8542, Answer Relevancy 0.8851, Context Precision 0.9417, Context Recall 0.9000 — cả 4/4 đạt ngưỡng bonus ≥0.75 và Faithfulness đạt ngưỡng bonus ≥0.85. Các lần chạy trước (chunking mặc định, chưa tối ưu) cho kết quả thấp hơn rõ rệt (vd Faithfulness 0.7667, Context Recall 0.7917) — chênh lệch chủ yếu do độ dài child chunk, không phải do RAGAS đo sai. |
 | Contextual embeddings / Enrichment | M5 | `_enrich_single_call()` | Dùng combined mode (1 API call/chunk thay vì 4 call riêng) để tối ưu chi phí — 100 chunks mất ~340s. Enrichment thêm 1 câu context mô tả vị trí chunk trong tài liệu (kiểu Anthropic contextual retrieval), nhưng không thể bù đắp việc chunk gốc bị thiếu thông tin — enrichment giúp *định vị* chunk tốt hơn, không giúp *mở rộng* nội dung chunk. |
 
 ## 3. Khó khăn & Cách giải quyết (= Phần 2 ASSIGNMENT.md)
@@ -55,9 +53,16 @@
   **Thời gian debug:** ~20 phút (đọc lại code pipeline.py, đối chiếu docstring, đối chiếu bottom-5 failures).
   **Kiến thức thiếu → bổ sung:** Hiểu sâu hơn rằng thiết kế đúng của một kỹ thuật (hierarchical chunking) không tự động đảm bảo kết quả tốt — nếu implementation chỉ dùng một nửa thiết kế (chỉ "retrieve child", bỏ "return parent") thì có thể phản tác dụng so với baseline đơn giản hơn.
 
+- **Khó khăn 3 — Thử fix "đúng thiết kế" (resolve child→parent) lại làm sập toàn bộ hệ thống eval:**
+  Sau khi xác định nguyên nhân ở Khó khăn 2, bước fix đầu tiên là sửa `pipeline.py` để resolve child chunk → parent chunk trước khi đưa context cho LLM, đúng thiết kế gốc của `chunk_hierarchical()`. Kết quả: cả 4 metric sụp gần về 0 (faithfulness 0.0, context_precision 0.05...), kèm log `Failed to parse output. Returning None.` từ RAGAS — dù đã thử nới lỏng prompt sinh câu trả lời, lỗi vẫn giữ nguyên.
+  **Cách debug:** So sánh `context_precision` (metric chỉ phụ thuộc context, không phụ thuộc câu trả lời của LLM) giữa 2 lần chạy với 2 prompt khác nhau — thấy giá trị giữ nguyên y hệt 0.0500 → suy ra nguyên nhân không nằm ở prompt mà nằm ở chính context (parent chunk 2048 ký tự × top-3 kết quả là quá dài, khiến RAGAS's internal judge LLM fail parse JSON output khi chấm điểm).
+  **Cách giải quyết:** Revert hoàn toàn về context chỉ dùng child chunk (không resolve parent), sau đó thử hướng an toàn hơn: tăng `HIERARCHICAL_CHILD_SIZE` vừa phải (256→550, không phải nhảy thẳng lên 2048) kết hợp 2 cải tiến prompt (yêu cầu trích số liệu cụ thể + trả lời rõ Có/Không cho câu hỏi negation). Kết quả: cả 4 metric vượt ngưỡng bonus, không tái diễn lỗi sụp điểm.
+  **Thời gian debug:** ~40 phút (2 lần chạy full pipeline ~10 phút/lần để kiểm chứng giả thuyết, cộng thời gian phân tích log).
+  **Kiến thức thiếu → bổ sung:** Một hệ thống eval tự động (RAGAS) cũng có giới hạn hạ tầng riêng (context length mà internal judge LLM có thể parse ổn định) — tối ưu 1 metric mà không kiểm soát các ràng buộc này có thể phá vỡ cả cơ chế đo lường, không chỉ ảnh hưởng đến điểm số. Fix "đúng lý thuyết nhất" không phải lúc nào cũng là fix an toàn nhất về mặt vận hành thực tế.
+
 ## 4. Nếu làm lại
 
-- **Sẽ làm khác điều gì:** Viết thêm 1 bước "resolve child → parent" ngay trong `pipeline.run_query()` trước khi đưa context cho LLM, thay vì để mặc định dùng thẳng child text — đúng với thiết kế ban đầu của `chunk_hierarchical()`.
+- **Sẽ làm khác điều gì:** Trước khi thử resolve child→parent (vốn đã gây sụp điểm ở bài này), sẽ đo trước độ dài trung bình của parent chunk và giới hạn số lượng/độ dài context đưa cho RAGAS judge — ví dụ resolve parent nhưng cắt bớt hoặc chỉ resolve 1 phần liên quan nhất, thay vì đưa nguyên văn 2048 ký tự × top-3. Ngoài ra sẽ viết eval nhỏ (vài câu hỏi) để test riêng bước "context length vs RAGAS parse success" trước khi chạy full 20 câu — tránh mất ~10 phút/lần chạy chỉ để phát hiện lỗi hạ tầng.
 - **Module nào muốn thử tiếp:** M2 — thử nghiệm MMR (Maximal Marginal Relevance) thay vì chỉ lấy top-k theo RRF score thuần túy, để tăng diversity cho các câu hỏi multi-hop (cần thông tin từ nhiều nguồn khác nhau).
 
 ## 5. Action Plan cho project cá nhân (= Phần 3 ASSIGNMENT.md)
@@ -91,5 +96,4 @@
 | Hiểu bài giảng | 4 — nắm được cơ chế và implement đúng theo spec cả 5 module (37/37 test pass), nhưng phần tự phát hiện lỗi thiết kế trong `pipeline.py` (thiếu resolve child→parent) cho thấy vẫn cần đọc kỹ hơn phần "return parent" ngay từ đầu thay vì chỉ dừng ở việc test pass. |
 | Code quality | 4 — code có fallback rõ ràng khi thiếu API key/model, có docstring, tách hàm hợp lý; điểm trừ vì một số phần (vd `_split_by_size`) là cải tiến thêm ngoài spec gốc nên cần review kỹ hơn để đảm bảo không lệch ý đồ ban đầu của đề bài. |
 | Teamwork | N/A — bài cá nhân |
-| Problem solving | 4 — debug đúng gốc rễ 2 vấn đề chính (môi trường pytest/venv, và RAGAS production thấp hơn baseline) bằng cách đối chiếu code với docstring + dữ liệu thực tế thay vì đoán mò; điểm trừ vì vấn đề chunking/pipeline chỉ dừng ở mức phát hiện + đề xuất fix, chưa thực sự sửa và đo lại hiệu quả. |
-
+| Problem solving | 5 — debug đúng gốc rễ 3 vấn đề (môi trường pytest/venv, RAGAS production thấp hơn baseline, và regression khi thử fix "đúng lý thuyết") bằng cách đối chiếu code/docstring với dữ liệu thực tế (đặc biệt dùng context_precision không đổi để cô lập nguyên nhân về context thay vì prompt); đã thực sự sửa và đo lại — kết quả cuối đạt cả 4/4 metric ≥0.75 và Faithfulness ≥0.85, có nhật ký đầy đủ cả lần thử fail lẫn lần thành công trong `failure_analysis.md`. |

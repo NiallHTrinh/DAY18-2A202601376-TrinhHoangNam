@@ -79,7 +79,14 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker) 
             client = OpenAI()
             context_str = "\n\n".join(contexts)
             resp = client.chat.completions.create(model="gpt-4o-mini", messages=[
-                {"role": "system", "content": "Trả lời CHỈ dựa trên context. Nếu không có → nói 'Không tìm thấy.'"},
+                {"role": "system", "content": (
+                    "Trả lời CHỈ dựa trên context được cung cấp bên dưới, không bịa thêm số liệu/thông tin "
+                    "ngoài context. Khi trả lời, trích dẫn cụ thể số liệu/điều khoản có trong context (ví dụ "
+                    "nêu rõ con số, mức, ngày, tên chính sách) thay vì trả lời chung chung. "
+                    "Nếu câu hỏi ở dạng có/không (ví dụ 'có được...không', 'có cần...không'), hãy trả lời rõ "
+                    "'Có' hoặc 'Không' ngay đầu câu rồi mới giải thích thêm. "
+                    "Nếu context không có → nói 'Không tìm thấy.'"
+                )},
                 {"role": "user", "content": f"Context:\n{context_str}\n\nCâu hỏi: {query}"},
             ])
             answer = resp.choices[0].message.content

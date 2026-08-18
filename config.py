@@ -20,7 +20,9 @@ EMBEDDING_DIM = 1024
 
 # --- Chunking ---
 HIERARCHICAL_PARENT_SIZE = 2048
-HIERARCHICAL_CHILD_SIZE = 256
+HIERARCHICAL_CHILD_SIZE = 550  # tăng từ 256 → gần bằng basic chunk_size (500) của naive baseline,
+                                # giảm phân mảnh context mà không cần resolve full parent (2048)
+                                # — tránh lặp lại lỗi context quá dài từng gây RAGAS fail parse.
 SEMANTIC_THRESHOLD = 0.85
 
 # --- Search ---
